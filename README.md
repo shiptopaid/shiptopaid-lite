@@ -42,7 +42,7 @@ Requirements: Node 22+ (required by `@polar-sh/sdk`), a Polar sandbox account.
 - A working Next.js starter: Better Auth, Postgres/Drizzle, Polar checkout, webhooks,
   gated pages, portal, legal templates and end-to-end test scripts
 
-👉 https://shiptopaid.com
+👉 **[Get the full pack at shiptopaid.com](https://www.shiptopaid.com)**
 
 ## License
 
