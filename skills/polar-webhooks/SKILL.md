@@ -6,7 +6,7 @@ description: Implement or debug Polar subscription webhooks when asked to “rec
 ## When to use
 
 Use when subscription events must update access safely, retries duplicate events, or a Polar delivery fails
-verification. Start from `starter/` in this pack; all app paths below are relative to it. Code snippets are copied from its source.
+verification. Paths below are relative to your app root. Code snippets come from a tested Next.js App Router reference app.
 
 ## Prerequisites
 
@@ -204,7 +204,7 @@ types document that cancellation can leave status active when `cancel_at_period_
 only for `active` or `trialing`; revocation removes access when status becomes canceled. Check
 `SubscriptionStatus` and cancellation fields in installed types on upgrades.
 
-The starter allowlists `POLAR_PRO_PRODUCT_IDS` (comma-separated), falling back to
+The reference app allowlists `POLAR_PRO_PRODUCT_IDS` (comma-separated), falling back to
 `POLAR_PRO_PRODUCT_ID`; unrelated products are ignored with 202. It stores subscription
 `modified_at` (fallback `created_at`) and atomically updates only when incoming >= stored.
 One entitlement per user still needs explicit aggregation for multiple subscriptions.
@@ -278,7 +278,7 @@ The script serializes `{ type, timestamp, api_version: '2026-04', data }` once, 
 `signer.sign(id, date, body)`, and sends epoch seconds in `webhook-timestamp`. The signing ID must equal
 `webhook-id`. It first checks SDK acceptance, then POSTs to `${APP_URL}/api/webhooks/polar`.
 
-From `starter/`, configure a local test DB and `POLAR_WEBHOOK_SECRET=test_secret_local` in `.env.local`:
+In your app, configure a local test DB and `POLAR_WEBHOOK_SECRET=test_secret_local` in `.env.local`:
 
 ```sh
 npm run db:migrate
@@ -315,7 +315,7 @@ In sandbox Settings → Webhooks, configure `https://<tunnel-host>/api/webhooks/
 secret in `POLAR_WEBHOOK_SECRET` and restart the app. Do not use `test_secret_local` for real delivery. Update
 the endpoint URL when the tunnel hostname changes. Keep app/auth origins consistent with the browser origin; update them if browsing through the tunnel.
 
-Sign in with a real deliverable email, follow `/api/checkout`, and complete a sandbox payment (starter
+Sign in with a real deliverable email, follow `/api/checkout`, and complete a sandbox payment (reference app
 verification notes use `4242 4242 4242 4242`). Inspect the dashboard delivery result, matching receipt,
 entitlement, and `/dashboard/pro`. Test scheduled cancellation separately from revocation: active status
 preserves access until period end; canceled status removes it. `VERIFICATION.md` marks browser/payment and real delivery as not yet done; record actual results.
@@ -355,7 +355,7 @@ uncertain, verify against https://polar.sh/docs; never invent request fields, er
 
 - [ ] Test scripts derive their base URL from `APP_URL`, never a hardcoded port.
 
-Run commands from `starter/`; DB/Polar npm scripts load `.env.local`.
+Run commands from your app root; DB/Polar npm scripts load `.env.local`.
 
 - [ ] `npm run db:migrate` creates `webhook_events` and `entitlements`.
 - [ ] With `npm run dev` running, `npm run test:webhook` passes all assertions.

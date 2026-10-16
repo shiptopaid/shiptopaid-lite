@@ -7,7 +7,7 @@ description: Add Polar subscription checkout to an existing authenticated app wh
 
 Add subscription checkout while preserving the app's auth, database, and UI.
 Primary examples target Next.js 15 App Router, TypeScript, Better Auth, and
-Drizzle/PostgreSQL. Paths below are relative to the ShipToPaid `starter/`.
+Drizzle/PostgreSQL. Paths below are relative to your app root (snippets come from a tested reference app).
 Read its `src/`, `scripts/`, `drizzle/`, `.env.example`, `README.md`, and
 `VERIFICATION.md` before adapting; snippets below come from that implementation.
 
@@ -270,7 +270,7 @@ export async function GET() {
    include `cancel_at_period_end` and document that canceled subscriptions may
    remain active with this flag. Do not revoke from `subscription.canceled` alone:
    retain access while status is active until period end/revocation updates it.
-   Enforce entitlement on paid APIs/server actions, too. The starter stores one
+   Enforce entitlement on paid APIs/server actions, too. The reference app stores one
    subscription per user, allowlists `POLAR_PRO_PRODUCT_IDS` (fallback
    `POLAR_PRO_PRODUCT_ID`), and ignores other products with 202. Preserve its
    `modified_at` (fallback `created_at`) persistence and incoming >= stored guard.
@@ -339,7 +339,7 @@ export async function GET() {
   If unsure, read those types or https://polar.sh/docs before writing an API call.
 - Treating multi-product checkout's 422 “product_id Field required” sibling error
   as proof `products` is wrong. Print the full validation detail with secrets/PII
-  redacted; another sibling error may identify email deliverability. The starter
+  redacted; another sibling error may identify email deliverability. The reference app
   test prints sanitized message/status; add sanitized nested-detail diagnostics
   if these omit the real cause.
 - Opening a portal for users who never checked out without handling 422
