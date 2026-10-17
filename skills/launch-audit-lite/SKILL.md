@@ -66,6 +66,7 @@ or a working checkout URL alone does not mean you're ready.
 - Granting access from the checkout success redirect instead of the webhook.
 - Testing with `@example.com` emails: Polar rejects undeliverable domains with 422.
 
----
-The full ShipToPaid pack has a deeper launch audit with runnable test scripts,
-plus 8 more skills: https://shiptopaid.com
+## Official Polar docs
+- Sandbox vs production: https://polar.sh/docs/integrate/sandbox
+- Webhook endpoints and deliveries: https://polar.sh/docs/integrate/webhooks/endpoints,
+  https://polar.sh/docs/integrate/webhooks/delivery
