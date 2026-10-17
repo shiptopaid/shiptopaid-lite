@@ -1,12 +1,14 @@
 ---
 name: polar-webhooks
-description: Implement or debug Polar subscription webhooks when asked to “receive Polar webhooks”, “sync entitlements”, “test signed webhooks”, or “fix webhook 403s”. Use for the ShipToPaid App Router handler, transactional idempotency, local signed tests, and real sandbox delivery through a tunnel.
+description: Implement or debug Polar subscription webhooks when asked to “receive Polar webhooks”, “sync entitlements”, “test signed webhooks”, or “fix webhook 403s”. Use for a Next.js App Router webhook route in the user's own app, transactional idempotency, local signed tests, and real sandbox delivery through a tunnel.
 ---
 
 ## When to use
 
 Use when subscription events must update access safely, retries duplicate events, or a Polar delivery fails
-verification. Paths below are relative to your app root. Code snippets come from a tested Next.js App Router reference app.
+verification. Work in the user's own app: file paths below are suggestions relative to its root, so reuse
+existing modules and follow its structure and import aliases. The snippets were tested together in a Next.js
+App Router app; for anything not shown, use installed SDK types and the official Polar docs listed at the end.
 
 ## Prerequisites
 
@@ -14,15 +16,19 @@ verification. Paths below are relative to your app root. Code snippets come from
   add `"engines": { "node": ">=22" }` to `package.json` and `.nvmrc` containing `22`.
 
 - Next.js 15 App Router, TypeScript, Better Auth users, Drizzle/PostgreSQL.
-- Read `src/app/api/webhooks/polar/route.ts`, `src/lib/{billing,entitlements}.ts`,
-  `src/db/{index,schema}.ts`, `scripts/test-webhook.ts`, `.env.example`,
-  `README.md`, and `VERIFICATION.md` before adapting.
-- Installed SDK **1.0.2** uses `@polar-sh/sdk/2026-04`, not the unavailable
+- Before editing, read the app's auth setup and user table, DB client, schema and
+  migration config (e.g. `drizzle.config.ts`), `package.json` scripts, env key
+  names (never print secret values), any existing Polar code such as the checkout
+  helper from the polar-checkout skill or an existing webhook route, and any
+  middleware that could intercept `/api/webhooks/polar`.
+- SDK **1.0.2** (the tested version) uses `@polar-sh/sdk/2026-04`, not the unavailable
   `@polar-sh/sdk/webhooks` export. Here the APIs are `webhooks.validateEvent`
   and `webhooks.PolarWebhookVerificationError`. Do not paste another version's
   `validateEvent` / `WebhookVerificationError` imports without checking exports.
-- Use Node 22+ (installed SDK engine requirement). Configure `.env.local` from
-  `.env.example`, including PostgreSQL and app/auth settings. Keep secrets private.
+- Use Node 22+ (installed SDK engine requirement). `.env.local` needs the app's
+  PostgreSQL and auth settings plus the Polar entries from the polar-checkout
+  skill (`APP_URL`, `POLAR_SERVER`, `POLAR_ACCESS_TOKEN`, `POLAR_PRO_PRODUCT_ID`,
+  `POLAR_WEBHOOK_SECRET`). Keep secrets private.
 - Use `POLAR_SERVER=sandbox`, sandbox tokens/products, and the endpoint's signing
   secret. Sandbox and production have separate orgs, tokens, products, and secrets.
   Synthetic tests need the local DB/app and matching secret; real checkout also
@@ -32,7 +38,7 @@ verification. Paths below are relative to your app root. Code snippets come from
 
 ### 1. Preserve lazy configuration and checkout identity
 
-Read environment values inside functions, as in `src/lib/env.ts`:
+Read environment values inside functions, using the env helper from polar-checkout (e.g. `src/lib/env.ts`):
 
 ```ts
 export function requiredEnv(name: string): string {
@@ -42,10 +48,13 @@ export function requiredEnv(name: string): string {
 }
 ```
 
-Keep the lazy DB proxy in `src/db/index.ts` and lazy `getPolar()` client in `src/lib/polar.ts`. The latter
-uses `createPolar` from the versioned package, with `environment: server` and `accessToken`. Eager env reads can break `next build` when runtime credentials are absent.
+Keep the DB client and the `getPolar()` client (from polar-checkout) lazy. `getPolar()` uses `createPolar`
+from the versioned package, with `environment: server` and `accessToken`. If the app's DB module creates its
+pool at import time, change it to connect on first use (e.g. a cached `getDb()`, optionally behind a `Proxy`
+exported as `db`). Eager env reads can break `next build` when runtime credentials are absent.
 
-The helper in `src/lib/billing.ts` establishes identity from the signed-in user:
+The checkout helper in the billing module (e.g. `src/lib/billing.ts`) establishes identity from the signed-in
+user. This file's imports are shared with step 3:
 
 ```ts
 import { getPolar } from './polar';
@@ -73,10 +82,28 @@ needed. A checkout redirect or query parameter never grants access.
 
 ### 2. Persist receipts and entitlement updates atomically
 
-Keep `entitlements` from `src/db/schema.ts`: one row per local user, storing Polar
-customer/subscription/product IDs, status, and current period end. Its user foreign key requires an existing local user, including in signed test fixtures.
+Add an `entitlements` table to the app's schema: one row per local user, storing Polar
+customer/subscription/product IDs, status, current period end, and the subscription's `modified_at`. Its user
+foreign key requires an existing local user, including in signed test fixtures. Point it at the app's real
+user table (Better Auth's is `user` with a text `id`; match the app's ID type):
 
-Receipt schema from that file (imports: `pgTable`, `text`, `timestamp` from `drizzle-orm/pg-core`):
+```ts
+export const entitlements = pgTable(
+  'entitlements',
+  {
+    userId: text('user_id').primaryKey().references(() => user.id, { onDelete: 'cascade' }),
+    polarCustomerId: text('polar_customer_id').notNull(),
+    subscriptionId: text('subscription_id').notNull(),
+    productId: text('product_id').notNull(),
+    status: text('status').notNull(),
+    subscriptionModifiedAt: timestamp('subscription_modified_at', { withTimezone: true }),
+    currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+);
+```
+
+Receipt table in the same schema file (imports: `pgTable`, `text`, `timestamp` from `drizzle-orm/pg-core`):
 
 ```ts
 export const webhookEvents = pgTable(
@@ -89,9 +116,11 @@ export const webhookEvents = pgTable(
 );
 ```
 
-The helpers in `src/lib/entitlements.ts` accept a DB or transaction executor:
+Put the helpers in an entitlements module (e.g. `src/lib/entitlements.ts`). They accept a DB or transaction
+executor. Module imports: `eq` and `sql` from `drizzle-orm`, the app's `db`, and both tables; declare
+`type Executor = Pick<typeof db, 'insert'>`.
 
-Reuse this exact `upsertEntitlement` excerpt; retain the module imports, including `sql` from `drizzle-orm`:
+Use this `upsertEntitlement` exactly; its `setWhere` is the stale-event guard:
 
 ```ts
 export async function upsertEntitlement(
@@ -110,12 +139,15 @@ export async function upsertEntitlement(
 }
 ```
 
-Persist the schema field copied from `src/db/schema.ts`:
+Read helper and receipt function in the same module:
 
 ```ts
-    subscriptionModifiedAt: timestamp('subscription_modified_at', { withTimezone: true }),
+export async function getEntitlement(userId: string) {
+  return (
+    (await db.select().from(entitlements).where(eq(entitlements.userId, userId)).limit(1))[0] ?? null
+  );
+}
 ```
-The receipt function below uses its existing `db`, `webhookEvents`, and `Executor` declarations (`Executor = Pick<typeof db, 'insert'>`).
 
 ```ts
 export async function recordWebhookEvent(
@@ -133,12 +165,15 @@ export async function recordWebhookEvent(
 }
 ```
 
-Use `npm run db:migrate` for the checked-in migration. After schema changes run `npm run db:generate`, inspect
-the SQL, then migrate. Receipt insertion and entitlement update must share a transaction: failure rolls back both for retry.
+Generate a migration with the app's tool (`npm run db:generate` with drizzle-kit), inspect the SQL, and confirm
+it only adds `entitlements` and `webhook_events` (never recreate existing auth tables), then apply it
+(`npm run db:migrate`). If those scripts are missing, add them; drizzle-kit needs `DATABASE_URL`, e.g.
+`node --env-file=.env.local node_modules/drizzle-kit/bin.cjs generate`. Receipt insertion and entitlement
+update must share a transaction: failure rolls back both for retry.
 
 ### 3. Apply subscription events and gate by status
 
-The rest of `src/lib/billing.ts` uses the imports from step 1:
+Add to the same billing module (imports from step 1):
 
 ```ts
 const subscriptionTypes = new Set([
@@ -190,7 +225,7 @@ export async function applySubscriptionEvent(
 The installed validator verifies signatures and recognized event types; it does not Zod-parse payloads. `as
 models.Subscription` is not runtime validation. Preserve checks on consumed fields and let failures roll back the transaction.
 
-Access check from `src/lib/entitlements.ts`:
+Access check in the entitlements module; call it server-side in paid pages, API routes, and server actions:
 
 ```ts
 export async function hasActiveSubscription(userId: string) {
@@ -204,14 +239,14 @@ types document that cancellation can leave status active when `cancel_at_period_
 only for `active` or `trialing`; revocation removes access when status becomes canceled. Check
 `SubscriptionStatus` and cancellation fields in installed types on upgrades.
 
-The reference app allowlists `POLAR_PRO_PRODUCT_IDS` (comma-separated), falling back to
+This handler allowlists `POLAR_PRO_PRODUCT_IDS` (comma-separated), falling back to
 `POLAR_PRO_PRODUCT_ID`; unrelated products are ignored with 202. It stores subscription
 `modified_at` (fallback `created_at`) and atomically updates only when incoming >= stored.
 One entitlement per user still needs explicit aggregation for multiple subscriptions.
 
 ### 4. Receive and verify the raw request
 
-Full `src/app/api/webhooks/polar/route.ts`:
+Create the route at `src/app/api/webhooks/polar/route.ts` (adjust `@/` imports to the app's aliases):
 
 ```ts
 import { webhooks } from '@polar-sh/sdk/2026-04';
@@ -250,17 +285,36 @@ Never call `request.json()` or reserialize before verification. Forward `webhook
 `webhook-signature` unchanged. The SDK rejects missing signing headers before the non-null ID assertion is
 reached. Return 403 for verification errors and 400 for other SDK webhook errors. Return 202 quickly after the
 short DB transaction, including duplicates; let DB failures propagate for retry. Keep slow external work out
-of the handler. Do not require a browser session for webhook delivery.
+of the handler. Do not require a browser session for webhook delivery: exclude this route from auth middleware,
+and make sure it does not redirect (Polar treats 3xx responses as failed deliveries).
 
 Other stacks: capture raw body before JSON middleware, forward signing headers, and preserve the same
 verification and transactional receipt/update semantics. Use Node runtime for routes using this PostgreSQL adapter.
 
 ### 5. Run the signed local test
 
-Reuse `scripts/test-webhook.ts`: its realistic snake_case fixture is typed as `models.Subscription`. It
-creates a temporary local user and cleans up user and receipt records. Its `@example.com` addresses never reach Polar.
+Write `scripts/test-webhook.ts` in the app (run by the `test:webhook` npm script from polar-checkout; needs
+`standardwebhooks` and `tsx` as dev dependencies). It imports the app's `db`, schema tables, entitlement helpers,
+`requiredEnv`, and `webhooks` / `models` from `@polar-sh/sdk/2026-04`. It should:
 
-Signing excerpt from inside its `main()` (uses `Webhook` from `standardwebhooks` and `requiredEnv` from `src/lib/env.ts`):
+- Insert a temporary local user (fill the app's required user columns) so the entitlement foreign key works.
+  In `finally`, delete that user and every receipt ID the script sent, then close the DB pool.
+- Build a realistic snake_case fixture typed as `models.Subscription`, letting the type checker list the
+  required fields: `status: 'active'`, `product_id` = the first allowed Pro product ID, `customer.external_id`
+  and `metadata.userId` = the temporary user ID, `current_period_end` about 30 days ahead, `modified_at: null`.
+  Fixture `@example.com` addresses never reach Polar.
+- Assert, in order:
+  1. Active event for an unrelated product ID: 202, no entitlement row, no access.
+  2. Active event (keep its webhook ID): 202, status `active`, `hasActiveSubscription` true.
+  3. Same webhook ID again: 202, exactly one `webhook_events` row for it.
+  4. Signature `v1,invalid`: 403, access unchanged.
+  5. `subscription.revoked` with `status: 'canceled'`, `ended_at` set, `modified_at` one second later: 202,
+     no access.
+  6. Older active payload (`modified_at` = original time) with a new webhook ID: 202, status stays `canceled`.
+  7. Replay of step 2's webhook ID: 202, still no access.
+- Print one PASS line naming the cases. On failure print only the error message and set `process.exitCode = 1`.
+
+Signing setup inside `main()` (`Webhook` from `standardwebhooks`):
 
 ```ts
   // Standard Webhooks decodes this base64 value to the raw UTF-8 secret.
@@ -274,9 +328,22 @@ Keep this base64 conversion: Standard Webhooks decodes its constructor secret. O
 base64-encoded the secret before passing it to Standard Webhooks. This installed SDK instead verifies HMAC
 directly, accepting raw UTF-8 and legacy decoded secrets. Inspect `dist/webhooks-*.mjs` on encoding mismatches; do not assume the older implementation is present.
 
-The script serializes `{ type, timestamp, api_version: '2026-04', data }` once, signs that exact body using
-`signer.sign(id, date, body)`, and sends epoch seconds in `webhook-timestamp`. The signing ID must equal
-`webhook-id`. It first checks SDK acceptance, then POSTs to `${APP_URL}/api/webhooks/polar`.
+Each send serializes `{ type, timestamp, api_version: '2026-04', data }` once, signs that exact body, and sends
+epoch seconds in `webhook-timestamp`. The signing ID must equal `webhook-id`. Valid events are first checked
+with the SDK, then POSTed to `${APP_URL}/api/webhooks/polar`:
+
+```ts
+  const body = JSON.stringify({ type, timestamp: new Date().toISOString(), api_version: '2026-04', data });
+  const date = new Date();
+  const headers = {
+    'content-type': 'application/json',
+    'webhook-id': id,
+    'webhook-timestamp': String(Math.floor(date.getTime() / 1000)),
+    'webhook-signature': bad ? 'v1,invalid' : signer.sign(id, date, body),
+  };
+  if (!bad) await webhooks.validateEvent(body, headers, requiredEnv('POLAR_WEBHOOK_SECRET'));
+  const response = await fetch(`${requiredEnv('APP_URL')}/api/webhooks/polar`, { method: 'POST', headers, body });
+```
 
 In your app, configure a local test DB and `POLAR_WEBHOOK_SECRET=test_secret_local` in `.env.local`:
 
@@ -291,8 +358,8 @@ With the app running, in another terminal:
 npm run test:webhook
 ```
 
-Expect PASS for active entitlement, duplicate receipt, invalid signature 403, revocation, and replay
-protection. Replaying the original active event ID after revocation must not restore access. This proves local
+Expect PASS for unrelated product ignored, active entitlement, duplicate receipt, invalid signature 403,
+revocation, stale event ignored, and replay protection. Replaying the original active event ID after revocation must not restore access. This proves local
 signature/DB behavior, not real dashboard delivery or completed payment.
 
 ### 6. Verify real sandbox delivery through a tunnel
@@ -315,14 +382,17 @@ In sandbox Settings → Webhooks, configure `https://<tunnel-host>/api/webhooks/
 secret in `POLAR_WEBHOOK_SECRET` and restart the app. Do not use `test_secret_local` for real delivery. Update
 the endpoint URL when the tunnel hostname changes. Keep app/auth origins consistent with the browser origin; update them if browsing through the tunnel.
 
-Sign in with a real deliverable email, follow `/api/checkout`, and complete a sandbox payment (reference app
-verification notes use `4242 4242 4242 4242`). Inspect the dashboard delivery result, matching receipt,
-entitlement, and `/dashboard/pro`. Test scheduled cancellation separately from revocation: active status
-preserves access until period end; canceled status removes it. `VERIFICATION.md` marks browser/payment and real delivery as not yet done; record actual results.
+Sign in with a real deliverable email, follow `/api/checkout`, and complete a sandbox payment (Polar's sandbox
+accepts the test card `4242 4242 4242 4242` with any future expiry and CVC). Inspect the delivery result in
+the Polar dashboard, the matching receipt and entitlement rows, and the app's paid page (e.g. `/dashboard/pro`).
+Test scheduled cancellation separately from revocation: active status preserves access until period end;
+canceled status removes it. Record what you actually observed; if browser payment or real delivery was not
+done, report it as not run rather than passed.
 
 ### 7. Diagnose failures without weakening verification
 
-- **403:** check endpoint/environment secret and restart after env changes.
+- **403:** check endpoint/environment secret and restart after env changes. If the handler never ran, auth
+  middleware, a firewall, or bot protection may be blocking Polar; exclude the route instead.
   Preserve the raw body and all three signing headers through middleware/proxies.
   Do not confuse the organization access token with the endpoint signing secret.
 - **Timestamp:** installed verifier tolerance is 300 seconds in either direction.
@@ -330,7 +400,9 @@ preserves access until period end; canceled status removes it. `VERIFICATION.md`
 - **Encoding:** reproduce with the local signer and inspect installed verifier
   code; do not randomly strip prefixes or double-base64 the secret.
 - **400:** inspect event type/API-version compatibility and JSON. This differs
-  from signature failure; do not convert all handler errors to 403.
+  from signature failure; do not convert all handler errors to 403. An event type
+  the installed SDK doesn't know raises `PolarWebhookUnknownTypeError` (a
+  `PolarWebhookError`, so 400 here); subscribe only to the six events above.
 - **500/retry:** inspect DB connectivity, migrations, user foreign key, and
   consumed subscription fields. Failed transactions must leave no receipt.
 - **Checkout 422:** Polar validates `customer_email` deliverability; `@example.com`
@@ -339,8 +411,8 @@ preserves access until period end; canceled status removes it. `VERIFICATION.md`
   Print full error detail with secrets redacted rather than changing the verified
   `products` shape based on that sibling alone.
 - **Portal 422:** `customerSessions.create({ external_customer_id: user.id })`
-  reports “Customer does not exist.” for users who never checked out. Follow
-  `src/app/api/portal/route.ts`: redirect to `/dashboard?billing=none` with a notice.
+  reports “Customer does not exist.” for users who never checked out. In the portal
+  route, redirect those users to `/dashboard?billing=none` with a notice.
 
 For APIs not shown here, inspect installed package exports and `dist/**/*.d.mts` types first. If
 uncertain, verify against https://polar.sh/docs; never invent request fields, error properties, or subscription status semantics.
@@ -367,9 +439,9 @@ Run commands from your app root; DB/Polar npm scripts load `.env.local`.
   Build a clean copy made with `git clone` or `git worktree add` into a temp
   directory (untracked `.env.local` is not copied), then run `npm ci` and
   `npm run build` from the copied app directory with DB/billing credentials absent.
-- [ ] `npm run db:studio` shows the matching receipt and entitlement after real
-  tunnel delivery; sandbox dashboard reports 202.
-- [ ] Paid signed-in user can open `/dashboard/pro`; scheduled cancellation keeps
+- [ ] The database (`npm run db:studio` or `psql`) shows the matching receipt and
+  entitlement after real tunnel delivery; sandbox dashboard reports 202.
+- [ ] Paid signed-in user can open the paid page; scheduled cancellation keeps
   access while active, and revocation/non-entitled status removes access.
 - [ ] Optional `npm run test:checkout` prints a sandbox checkout URL. Its fake user
   ID is not a signed-in DB user; use an actual account for payment/webhook tests.
@@ -391,3 +463,11 @@ Run commands from your app root; DB/Polar npm scripts load `.env.local`.
   or assuming duplicate-ID checks order distinct events.
 - Mixing sandbox/production configuration or treating a synthetic test as proof
   that real payment completion and remote delivery work.
+
+## Official Polar docs
+
+- Set up webhook endpoints: https://polar.sh/docs/integrate/webhooks/endpoints
+- Validate and monitor deliveries: https://polar.sh/docs/integrate/webhooks/delivery
+- Webhook events: https://polar.sh/docs/integrate/webhooks/events
+- Sandbox: https://polar.sh/docs/integrate/sandbox
+- TypeScript SDK: https://polar.sh/docs/integrate/sdk/typescript
