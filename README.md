@@ -32,17 +32,19 @@ Then ask your agent: *"Add a $9/month Pro plan with Polar"* or *"Am I ready to l
 
 Requirements: Node 22+ (required by `@polar-sh/sdk`), a Polar sandbox account.
 
-## Want the whole path from shipped to paid?
+## The paid pack
 
-**ShipToPaid** ($49, one-time, lifetime updates) adds:
+The paid [ShipToPaid](https://www.shiptopaid.com) pack goes further, with full
+Polar **and** Stripe support:
 
-- 6 more skills: entitlements and customer portal, usage and credit metering, license keys,
-  Stripe fallback, a landing page and pricing copy, plus the **full** launch audit
-- 5 slash commands (`/add-paywall`, `/debug-webhook`, `/launch-audit`, `/ship`, `/add-credits`)
-- A working Next.js starter: Better Auth, Postgres/Drizzle, Polar checkout, webhooks,
-  gated pages, portal, legal templates and end-to-end test scripts
+- 11 skills: checkout, verified payment notifications, access control, customer
+  portal, usage credits, license keys, the full launch audit, a landing page and
+  pricing copy
+- 5 commands: `/add-paywall`, `/debug-webhook`, `/launch-audit`, `/ship`, `/add-credits`
+- A Next.js starter: Better Auth, Postgres + Drizzle, Polar
 
-👉 **[Get the full pack at shiptopaid.com](https://www.shiptopaid.com)**
+$49 one-time for the first 100 buyers, then $79. The skills in this repo are free
+under MIT and work on their own.
 
 ## License
 
