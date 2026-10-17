@@ -46,7 +46,8 @@ The agent reads `polar-checkout` and `polar-webhooks`, then roughly:
 3. Sets up the payment notifications Polar sends, checks each one really came
    from Polar, and turns Pro on (and off again when a subscription ends).
 4. Locks `/dashboard/pro` so only Pro users can open it.
-5. Runs the included sandbox tests and tells you what passed and what it couldn't run.
+5. Writes a few sandbox tests into your app, runs them, and tells you what passed
+   and what it couldn't run.
 
 Later, ask *"Am I ready to launch?"* and `launch-audit-lite` walks through the
 checklist, marking each item PASS, FAIL or NOT RUN.
@@ -82,7 +83,7 @@ Polar **and** Stripe support:
 - A Next.js starter: Better Auth, Postgres + Drizzle, Polar
 
 $49 one-time for the first 100 buyers, then $79. The skills in this repo are free
-under MIT and work on their own.
+under MIT and work on their own, in your existing app; you don't need the starter.
 
 ## License
 
