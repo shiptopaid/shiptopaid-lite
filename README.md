@@ -32,6 +32,44 @@ Then ask your agent: *"Add a $9/month Pro plan with Polar"* or *"Am I ready to l
 
 Requirements: Node 22+ (required by `@polar-sh/sdk`), a Polar sandbox account.
 
+## Example
+
+With the skills installed, type a plain request into Claude Code, Cursor or Codex:
+
+> Add a $9/month Pro plan with Polar. Only Pro users should be able to open /dashboard/pro.
+
+The agent reads `polar-checkout` and `polar-webhooks`, then roughly:
+
+1. Creates the Pro plan in your Polar sandbox with a small script you can re-run.
+2. Adds an upgrade button that sends the signed-in user to Polar checkout and
+   back to a success page.
+3. Sets up the payment notifications Polar sends, checks each one really came
+   from Polar, and turns Pro on (and off again when a subscription ends).
+4. Locks `/dashboard/pro` so only Pro users can open it.
+5. Runs the included sandbox tests and tells you what passed and what it couldn't run.
+
+Later, ask *"Am I ready to launch?"* and `launch-audit-lite` walks through the
+checklist, marking each item PASS, FAIL or NOT RUN.
+
+Results depend on your app and your agent. Read the changes before you commit them.
+
+## Limits
+
+- Written for Next.js App Router with TypeScript. Examples use Better Auth and
+  Postgres + Drizzle; on another stack the agent has to adapt them.
+- Polar only. There is no Stripe support in this repo.
+- These are instructions for your coding agent, not a library. There is nothing
+  to install from npm; the agent writes the code into your app.
+- Test in the Polar sandbox before switching to production.
+
+## Contributing / issues
+
+Found a mistake, an outdated Polar detail, or a step that didn't work with your
+agent? [Open an issue](https://github.com/shiptopaid/shiptopaid-lite/issues) with
+what you asked, which agent you used and what happened. Small pull requests that
+fix or clarify a skill are welcome. Please never paste API keys or other secrets
+into an issue.
+
 ## The paid pack
 
 The paid [ShipToPaid](https://www.shiptopaid.com) pack goes further, with full
