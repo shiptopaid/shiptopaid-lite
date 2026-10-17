@@ -8,6 +8,9 @@
 - README: added Example, Limits and Contributing / issues sections.
 - Removed the `stripe` repo topic. This repo is Polar only.
 - Added this changelog.
+- Made all three skills work standalone in your own app: removed references to
+  the paid starter's files and `VERIFICATION.md`, described the checkout and
+  signed webhook tests inline, and linked the official Polar docs.
 
 ## 2026-10-16
 
