@@ -1,15 +1,22 @@
 ---
 name: polar-checkout
-description: Add Polar subscription checkout to an existing authenticated app when asked to "add Polar checkout", "sell a subscription", or "create a Polar checkout session". Use for environment setup, reusable product creation, authenticated checkout, a success destination, and sandbox verification with the ShipToPaid starter.
+description: Add Polar subscription checkout to an existing authenticated app when asked to "add Polar checkout", "sell a subscription", or "create a Polar checkout session". Use for environment setup, reusable product creation, authenticated checkout, a success destination, and sandbox verification in the user's own app.
 ---
 
 ## When to use
 
-Add subscription checkout while preserving the app's auth, database, and UI.
-Primary examples target Next.js 15 App Router, TypeScript, Better Auth, and
-Drizzle/PostgreSQL. Paths below are relative to your app root (snippets come from a tested reference app).
-Read its `src/`, `scripts/`, `drizzle/`, `.env.example`, `README.md`, and
-`VERIFICATION.md` before adapting; snippets below come from that implementation.
+Add subscription checkout to the user's existing app while preserving its auth,
+database, and UI. Examples target Next.js 15 App Router, TypeScript, Better Auth,
+and Drizzle/PostgreSQL; the snippets were tested together in a working app.
+
+Work from the user's app, not from a template. Before editing, read its
+`package.json` and lockfile, auth setup and server-side session lookup, database
+client, schema and migration setup, `.env.example` / `.env.local` key names (never
+print secret values), existing pages and routes, and any README. File paths below
+(such as `src/lib/polar.ts`) are suggestions relative to the app root: reuse
+existing helpers and follow the app's structure and import aliases. For anything
+not shown here, use the installed SDK types and the official Polar docs listed at
+the end; never invent request fields.
 
 ## Prerequisites
 
@@ -20,18 +27,23 @@ Read its `src/`, `scripts/`, `drizzle/`, `.env.example`, `README.md`, and
 - Polar sandbox organization and organization token with product/checkout access.
 - PostgreSQL for entitlement state and webhook receipts; a reachable webhook URL
   for actual payment confirmation.
-- Inspect installed package exports/types before choosing APIs. The reference has
-  SDK **1.0.2**, using `@polar-sh/sdk/2026-04`, and endpoint API version **2026-04**.
-  It does not export `new Polar` from the root or `@polar-sh/sdk/webhooks`.
-- Use a supported Node version: installed SDK declares >=22; the optional Next.js
-  adapter 1.1.0 declares >=24. Reuse existing dependencies/package manager and
-  lockfile; the reference uses `tsx` for scripts and `standardwebhooks` for tests.
+- Inspect installed package exports/types before choosing APIs. The snippets were
+  tested with SDK **1.0.2**, the versioned entry `@polar-sh/sdk/2026-04`, and
+  webhook endpoint API version **2026-04**. That SDK's root entry only exports
+  error classes (no `new Polar`), and it has no `@polar-sh/sdk/webhooks` entry.
+  Polar's docs may show a newer version (such as `2026-10`); whichever you pick,
+  use the same version for the SDK import and the webhook endpoint.
+- Use a supported Node version: SDK 1.0.2 declares >=22; the optional Next.js
+  adapter 1.1.0 declares >=24. Reuse the app's package manager and lockfile. The
+  scripts below run with `tsx`, and the signed webhook test uses
+  `standardwebhooks`; add both as dev dependencies if missing.
 
 ## Procedure
 
 1. **Configure environment and a lazy Polar client.**
-   Merge billing entries from `.env.example`; retain the existing app's database
-   and auth configuration. Keep tokens and signing secrets server-only:
+   Add these billing entries to `.env.local` (and, without real values, to
+   `.env.example`); keep the app's existing database and auth configuration.
+   Keep tokens and signing secrets server-only (no `NEXT_PUBLIC_` prefix):
 
 ```dotenv
 APP_URL=http://localhost:3000
@@ -45,7 +57,8 @@ POLAR_WEBHOOK_SECRET=test_secret_local
    tests; use the endpoint's actual secret for remote delivery. Sandbox and
    production have separate organizations, tokens, products, and webhook secrets.
    Switch them together when deploying.
-   Copy `src/lib/env.ts` and `src/lib/polar.ts`:
+   Add a small env helper and a lazy Polar client (e.g. `src/lib/env.ts` and
+   `src/lib/polar.ts`), or reuse equivalents the app already has:
 
 ```ts
 export function requiredEnv(name: string): string {
@@ -70,12 +83,14 @@ export function getPolar() {
 }
 ```
    Read env inside functions. Eager module-level env reads can break `next build`
-   without credentials; keep auth/DB initialization lazy too (see `src/lib/auth.ts`
-   and `src/db/index.ts`). create-next-app ignores `.env*`, including `.env.example`;
+   without credentials. Check the app's own auth and DB modules too: if they read
+   env or open a connection at import time, create the instance on first use
+   instead (e.g. a `getAuth()` / `getDb()` function that caches it). create-next-app
+   ignores `.env*`, including `.env.example`;
    add `!.env.example` to the target app's ignore rules when including its template.
 
 2. **Create the subscription product idempotently.**
-   Copy `scripts/create-products.ts`:
+   Add a re-runnable product script (e.g. `scripts/create-products.ts`):
 
 ```ts
 import { getPolar } from '../src/lib/polar';
@@ -112,7 +127,8 @@ main().catch(() => {
    Run sequentially: reuse by name prevents duplicates on rerun, not concurrent
    races. Existing pricing is not modified; inspect reused price/currency/interval.
    Adapt the name and price deliberately for the app's subscription.
-   Merge these entries from `package.json` into the app's scripts:
+   Add these npm scripts (the test scripts are written in step 7 and in the
+   polar-webhooks skill):
 
 ```json
 {
@@ -125,7 +141,7 @@ main().catch(() => {
    `POLAR_PRO_PRODUCT_ID=...` into `.env.local`; rerun to confirm the same ID.
 
 3. **Create checkout using the server-authenticated user.**
-   Copy this function and imports from `src/lib/billing.ts`:
+   Add a billing helper (e.g. `src/lib/billing.ts`):
 
 ```ts
 import { getPolar } from './polar';
@@ -152,7 +168,9 @@ export function createCheckoutForUser(user: {
    `subscription.metadata.userId`. Never trust browser-supplied identity/email.
 
 4. **Require auth in `/api/checkout`.**
-   Reuse the app's session guard. Better Auth reference `src/lib/session.ts`:
+   Reuse the app's session guard. If it has none, a Better Auth example (here
+   `getAuth()` returns the app's lazily created Better Auth instance; adapt the
+   import to however the app exports it):
 
 ```ts
 import { headers } from 'next/headers';
@@ -166,7 +184,7 @@ export async function requireSession() {
   return session;
 }
 ```
-   Copy `src/app/api/checkout/route.ts`:
+   Create the checkout route (e.g. `src/app/api/checkout/route.ts`):
 
 ```ts
 import { redirect } from 'next/navigation';
@@ -195,11 +213,11 @@ export async function GET() {
    and inspect its installed types/runtime and `dist/index.js` for compatibility.
 
 5. **Provide a success page that waits for verified payment state.**
-   The reference uses `/dashboard` as its success destination. Its server page
-   receives `searchParams: Promise<{ upgrade?: string; checkout_id?: string;
-   billing?: string }>` in Next.js 15, authenticates, reads persisted entitlement,
-   and awaits `searchParams`. Copy the full page's imports/props when adapting.
-   Its success notice from `src/app/dashboard/page.tsx` is:
+   Use an existing signed-in page as the success destination (the examples use
+   `/dashboard`). In Next.js 15 a server page receives `searchParams` as a Promise,
+   e.g. `searchParams: Promise<{ upgrade?: string; checkout_id?: string;
+   billing?: string }>`. The page authenticates, reads persisted entitlement, awaits
+   `searchParams` into `params`, and shows a pending notice:
 
 ```tsx
       {params.checkout_id && (
@@ -214,14 +232,16 @@ export async function GET() {
    path, update `success_url` consistently and preserve these semantics.
 
 6. **Persist webhook receipts and subscription entitlement.**
-   Adapt `entitlements` and `webhookEvents` from `src/db/schema.ts` to the existing
-   user table; `webhook_events.id` is a primary key containing `webhook-id`.
-   Generate/review a migration; do not blindly apply example auth tables.
-   Copy `src/lib/entitlements.ts`, `applySubscriptionEvent` from `src/lib/billing.ts`,
-   and `src/app/api/webhooks/polar/route.ts`. Configure endpoint API version 2026-04
-   and the six events the handler accepts: `subscription.created`, `.updated`,
-   `.active`, `.canceled`, `.revoked`, `.uncanceled`.
-   Critical sequence copied from the route (retain its imports and Node runtime):
+   Follow the polar-webhooks skill for this step: it has the `entitlements` and
+   `webhook_events` tables (linked to the app's existing user table;
+   `webhook_events.id` is a primary key holding `webhook-id`), the entitlement
+   helpers, `applySubscriptionEvent`, and the full webhook route. Generate and
+   review a migration that only adds billing tables; never recreate the app's
+   existing auth tables. Configure endpoint API version 2026-04 and the six events
+   the handler accepts: `subscription.created`, `.updated`, `.active`, `.canceled`,
+   `.revoked`, `.uncanceled`.
+   The critical sequence inside the route (it also needs its imports and the
+   Node runtime):
 
 ```ts
   const body = await request.text();
@@ -258,7 +278,7 @@ export async function GET() {
    legacy base64 secrets. It checks signatures/types without Zod-parsing payloads;
    preserve consumed-field validation in `applySubscriptionEvent`.
    Local signed tests still base64-encode the secret for Standard Webhooks, which
-   decodes it to the signing bytes. From `scripts/test-webhook.ts`:
+   decodes it to the signing bytes. In the signed test (polar-webhooks step 5):
 
 ```ts
   const signer = new Webhook(
@@ -270,15 +290,15 @@ export async function GET() {
    include `cancel_at_period_end` and document that canceled subscriptions may
    remain active with this flag. Do not revoke from `subscription.canceled` alone:
    retain access while status is active until period end/revocation updates it.
-   Enforce entitlement on paid APIs/server actions, too. The reference app stores one
+   Enforce entitlement on paid APIs/server actions, too. This design stores one
    subscription per user, allowlists `POLAR_PRO_PRODUCT_IDS` (fallback
    `POLAR_PRO_PRODUCT_ID`), and ignores other products with 202. Preserve its
    `modified_at` (fallback `created_at`) persistence and incoming >= stored guard.
    Multiple subscriptions still need explicit reconciliation.
 
 7. **Add and run the checkout smoke test.**
-   Copy the complete `scripts/test-checkout.ts`, including its sanitized error
-   handler. Its core uses `randomUUID` from `node:crypto` and the billing helper:
+   Add `scripts/test-checkout.ts`. It creates a checkout for a synthetic user with
+   the billing helper (`randomUUID` from `node:crypto`) and prints the URL:
 
 ```ts
   const checkout = await createCheckoutForUser({
@@ -287,6 +307,10 @@ export async function GET() {
   },);
   console.log(checkout.url);
 ```
+   Wrap `main()` in a sanitized error handler: print only the error message and
+   numeric `statusCode`, with every environment value and any `Bearer ...` token
+   replaced by `[redacted]`, set `process.exitCode = 1`, and never log the raw
+   error object (it can contain credentials or customer data).
    Use a deliverable domain, preferably an address you control. Polar rejects
    `@example.com` checkout emails with 422 “domain does not accept email”. Local
    webhook fixture emails do not contact Polar. `npm run test:checkout` prints a
@@ -312,8 +336,9 @@ export async function GET() {
   `npm run db:migrate` (or the existing app's equivalent commands).
 - [ ] Run `npm run test:checkout`; expect `https://sandbox.polar.sh/checkout/...`.
 - [ ] With `npm run dev` running separately, run `npm run test:webhook` after
-  adapting the test script in skills/polar-webhooks: active access, duplicate receipt, signature 403,
-  revocation, and replay of the same event ID must pass.
+  writing the signed test from the polar-webhooks skill: unrelated product ignored,
+  active access, duplicate receipt, signature 403, revocation, stale event ignored,
+  and replay of the same event ID must pass.
 - [ ] Run `npx tsc --noEmit`, `npm run lint`, and `npm run build`.
 - [ ] Credential-free build: Next.js auto-loads `.env.local` from the project directory.
   Never move, rename, or delete `.env.local`; an interrupted agent can lose it.
@@ -324,8 +349,9 @@ export async function GET() {
   redirect to `/sign-in`. In a signed-in browser, expect a sandbox checkout URL.
 - [ ] Complete sandbox payment as a real app user; receive actual signed webhook
   delivery, confirm pending notice and eventual paid access, then test cancellation
-  at period end and revocation separately. `VERIFICATION.md` marks browser payment
-  and real delivery as manual work, not checks already completed automatically.
+  at period end and revocation separately (test card `4242 4242 4242 4242`, any
+  future expiry and CVC). Browser payment and real delivery are manual steps:
+  report them as NOT RUN unless you actually completed them.
 - [ ] Visit `/dashboard?checkout_id=forged` without entitlement; paid UI and APIs
   must stay locked. Test duplicate webhooks cannot restore revoked access.
 
@@ -339,15 +365,27 @@ export async function GET() {
   If unsure, read those types or https://polar.sh/docs before writing an API call.
 - Treating multi-product checkout's 422 “product_id Field required” sibling error
   as proof `products` is wrong. Print the full validation detail with secrets/PII
-  redacted; another sibling error may identify email deliverability. The reference app
+  redacted; another sibling error may identify email deliverability. The smoke
   test prints sanitized message/status; add sanitized nested-detail diagnostics
   if these omit the real cause.
 - Opening a portal for users who never checked out without handling 422
   “Customer does not exist.” Verified call:
   `customerSessions.create({ external_customer_id: user.id })`, returning
-  `customer_portal_url`. Adapt `src/app/api/portal/route.ts`: missing customers
-  redirect to `/dashboard?billing=none` with a notice; other failures use
-  `/dashboard?billing=error`. Keep the final successful redirect outside the catch.
+  `customer_portal_url`. In an authenticated portal route (e.g.
+  `src/app/api/portal/route.ts`), a 422 whose detail or message contains
+  "Customer does not exist" redirects to `/dashboard?billing=none` with a notice;
+  other failures log a generic line (no SDK error payload) and redirect to
+  `/dashboard?billing=error`. Inspect the installed SDK error types for where the
+  status and detail live. Keep the final successful redirect outside the catch.
 - Trusting success query parameters or event names as payment proof, recording
   receipts outside the entitlement transaction, mixing sandbox/production values,
   or reading required environment variables eagerly at module scope.
+
+## Official Polar docs
+
+- Sandbox: https://polar.sh/docs/integrate/sandbox
+- TypeScript SDK: https://polar.sh/docs/integrate/sdk/typescript
+- Checkout API: https://polar.sh/docs/features/checkout/session
+- Create checkout session (2026-04): https://polar.sh/docs/api-reference/2026-04/checkouts/create-checkout-session
+- Create customer session (portal): https://polar.sh/docs/api-reference/2026-04/customer-sessions/create-customer-session
+- Webhooks: https://polar.sh/docs/integrate/webhooks/endpoints
