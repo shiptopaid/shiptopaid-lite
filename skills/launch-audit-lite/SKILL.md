@@ -52,10 +52,20 @@ or a working checkout URL alone does not mean you're ready.
 - [ ] A monitored support email is shown.
 - [ ] Checkout errors show a retry screen instead of a 500.
 
-### 5. Real money test
-- [ ] Buy your own product with a real card in production, confirm the webhook
-      arrived and access unlocked, then refund it and confirm access behaves as
-      your policy says.
+### 5. Production check (no real card)
+- [ ] Don't test production with your own real card. Polar asks you not to run
+      test purchases with real card details: payment processors treat it as card
+      testing, which can block the card or your account, and it triggers a Polar
+      account review. Payments, renewals, cancellations and refunds are tested
+      in the sandbox.
+- [ ] To check the production setup end to end, create a 100% discount code in
+      the production org, restricted to your paid product, with maximum
+      redemptions 1. For a subscription, set the duration to Forever: Polar
+      doesn't ask for a card on 100%-forever subscriptions, so nothing renews at
+      full price later. Check out with it as a new user, confirm the production
+      webhook delivery succeeded in the dashboard and access unlocked, then
+      cancel the subscription and confirm access behaves as your policy says.
+      Delete the code afterwards.
 - [ ] `npm run build` passes in a clean clone (Next.js auto-loads `.env.local`, so
       never move or rename it to test this; use `git worktree add`).
 
@@ -65,8 +75,12 @@ or a working checkout URL alone does not mean you're ready.
 - Parsing JSON before verifying the signature. Verification needs the exact raw bytes.
 - Granting access from the checkout success redirect instead of the webhook.
 - Testing with `@example.com` emails: Polar rejects undeliverable domains with 422.
+- "Testing" production with your own real card and refunding it. Use the sandbox,
+  or a 100% discount code in production (step 5).
 
 ## Official Polar docs
 - Sandbox vs production: https://polar.sh/docs/integrate/sandbox
+- Test transactions (no real cards in production): https://polar.sh/docs/merchant-of-record/account-reviews
+- Discount codes (duration, product restriction, redemption limits): https://polar.sh/docs/features/discounts
 - Webhook endpoints and deliveries: https://polar.sh/docs/integrate/webhooks/endpoints,
   https://polar.sh/docs/integrate/webhooks/delivery

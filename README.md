@@ -61,7 +61,9 @@ Results depend on your app and your agent. Read the changes before you commit th
 - Polar only. There is no Stripe support in this repo.
 - These are instructions for your coding agent, not a library. There is nothing
   to install from npm; the agent writes the code into your app.
-- Test in the Polar sandbox before switching to production.
+- Test in the Polar sandbox before switching to production, and don't test
+  production with your own real card (Polar asks you not to; `launch-audit-lite`
+  uses a 100% discount code instead).
 
 ## Contributing / issues
 
